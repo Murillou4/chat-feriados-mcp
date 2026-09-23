@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Chat local para consultar feriados nacionais do Brasil.">
+    <title>Chat de feriados</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <script src="/js/app.js" defer></script>
+  </head>
+  <body>
+    <main class="chat-app" aria-labelledby="chat-title">
+      <header class="chat-header">
+        <h1 id="chat-title">Chat de feriados</h1>
+        <button id="clear-chat" type="button" disabled>Nova conversa</button>
+      </header>
+
+      <section id="messages" class="messages" role="log" aria-live="polite" aria-label="Mensagens da conversa">
+        <div id="empty-state" class="empty-state">
+          <p>Pergunte sobre os feriados nacionais do Brasil.</p>
+          <p>Por exemplo: Quais são os feriados de 2026?</p>
+        </div>
+      </section>
+
+      <div class="chat-footer">
+        <div id="error-banner" class="error-banner" role="alert" hidden>
+          <span id="error-text"></span>
+        </div>
+        <form id="chat-form">
+          <label for="message-input">Sua pergunta</label>
+          <div class="composer">
+            <textarea id="message-input" name="message" rows="2" maxlength="2000" placeholder="Escreva sua pergunta" aria-describedby="input-hint" required></textarea>
+            <button id="send-button" type="submit" disabled><span id="send-label">Enviar</span></button>
+          </div>
+          <p id="input-hint">Enter para enviar. Shift + Enter para quebrar a linha.</p>
+        </form>
+      </div>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+# Saídas do .NET
+**/bin/
+**/obj/
+**/TestResults/
+*.user
+*.suo
+
+# Arquivos locais de editores e sistema
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Configuração local e arquivos temporários
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+
+# Enunciado fornecido apenas como referência local
+/Teste de implementação de software com IA embarcada v2 (1).pdf
+
+# Anotações pessoais de instalação e apresentação
+/GUIA_PESSOAL.md
