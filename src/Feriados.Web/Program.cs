@@ -15,6 +15,7 @@ var model = builder.Configuration["Ollama:Model"]
     ?? throw new InvalidOperationException("Configure Ollama:Model.");
 var mcpEndpoint = builder.Configuration["Mcp:Endpoint"]
     ?? throw new InvalidOperationException("Configure Mcp:Endpoint.");
+var fusoBrasil = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
 
 builder.Services.AddSingleton<IChatClient>(_ =>
     new ChatClientBuilder(new OllamaApiClient(new Uri(ollamaEndpoint), model))
@@ -65,16 +66,20 @@ app.MapPost("/api/chat", async (ChatRequest request, IChatClient chatClient,
         try
         {
             var tools = await mcpClient.ListToolsAsync(cancellationToken: cancellationToken);
+            var hoje = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, fusoBrasil).DateTime);
+            var consulta = ConsultaFeriadosHelper.Resolver(recentMessages, hoje);
             var history = new List<ChatMessage>
             {
-                new(ChatRole.System, """
+                new(ChatRole.System, $"""
                     Responda em português, de modo claro e breve, em texto simples sem Markdown. Quando a pergunta pedir feriados nacionais
-                    brasileiros de um ano, inclusive em perguntas de acompanhamento, chame a ferramenta
+                    brasileiros de um ano ou desta semana, inclusive em perguntas de acompanhamento, chame a ferramenta
                     consultar_feriados_nacionais antes de responder. Se a pergunta atual trouxer um novo ano,
                     consulte esse ano de novo; nunca reutilize datas de um ano anterior da conversa. Use somente
                     os dados retornados pela ferramenta nesta pergunta para datas e nomes. Se a consulta falhar, explique que não conseguiu confirmar
                     os dados. Para outros assuntos, responda sem chamar a ferramenta. Ao usar a ferramenta,
                     mencione que a fonte dos dados é a BrasilAPI. Escreva datas no formato dd/MM/aaaa.
+                    Hoje no Brasil é {hoje:dd/MM/yyyy}. "Desse ano" significa {hoje.Year}; "dessa semana" significa
+                    a semana de segunda a domingo que contém a data de hoje. Não peça o ano ao usuário para essas expressões.
                     """)
             };
 
@@ -92,28 +97,42 @@ app.MapPost("/api/chat", async (ChatRequest request, IChatClient chatClient,
                 .ToList();
             var usedMcp = functionResults.Count > 0;
 
+            var consultaRelativa = consulta is not null &&
+                !Regex.IsMatch(recentMessages[^1].Content, @"\b\d{4}\b");
+            if (consulta is not null && (consultaRelativa || !usedMcp))
+            {
+                // Expressões relativas precisam do ano atual e, no caso da semana, do recorte exato dos dados da API.
+                var anos = new List<int> { consulta.Ano };
+                if (consulta.FimSemana is DateOnly fim && fim.Year != consulta.Ano)
+                    anos.Add(fim.Year);
+
+                var feriados = new List<FeriadoDaResposta>();
+                foreach (var ano in anos)
+                {
+                    var result = await mcpClient.CallToolAsync("consultar_feriados_nacionais",
+                        new Dictionary<string, object?> { ["ano"] = ano }, cancellationToken: cancellationToken);
+                    if (result.IsError == true)
+                        return Results.Json(new { error = "Não foi possível confirmar os feriados. Verifique o ano e a conexão com a BrasilAPI." }, statusCode: 502);
+
+                    var json = result.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text;
+                    var dados = JsonSerializer.Deserialize<ResultadoFeriados>(json ?? "",
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                    if (dados is null || dados.Ano != ano || dados.Feriados is null)
+                        return Results.Json(new { error = "O servidor MCP devolveu uma resposta inválida." }, statusCode: 502);
+
+                    feriados.AddRange(dados.Feriados);
+                }
+
+                var answer = consulta.InicioSemana is DateOnly inicioSemana && consulta.FimSemana is DateOnly fimSemana
+                    ? ConsultaFeriadosHelper.MontarRespostaSemanal(feriados, inicioSemana, fimSemana)
+                    : MontarRespostaFeriados(new ResultadoFeriados(consulta.Ano, feriados), recentMessages[^1].Content);
+                return Results.Ok(new ChatReply(answer, true));
+            }
+
             if (functionResults.Any(result => result.Result is JsonElement json &&
                     json.TryGetProperty("isError", out var error) && error.ValueKind == JsonValueKind.True))
             {
                 return Results.Json(new { error = "Não foi possível confirmar os feriados. Verifique o ano e a conexão com a BrasilAPI." }, statusCode: 502);
-            }
-
-            var anoParaConfirmar = AnoDeConsultaDeFeriados(recentMessages);
-            if (!usedMcp && anoParaConfirmar is int ano)
-            {
-                // Modelos locais podem responder de memória mesmo quando o ano mudou; nesse caso confirmamos pelo MCP.
-                var result = await mcpClient.CallToolAsync("consultar_feriados_nacionais",
-                    new Dictionary<string, object?> { ["ano"] = ano }, cancellationToken: cancellationToken);
-                if (result.IsError == true)
-                    return Results.Json(new { error = "Não foi possível confirmar os feriados. Verifique o ano e a conexão com a BrasilAPI." }, statusCode: 502);
-
-                var json = result.Content.OfType<TextContentBlock>().FirstOrDefault()?.Text;
-                var dados = JsonSerializer.Deserialize<ResultadoFeriados>(json ?? "",
-                    new JsonSerializerOptions(JsonSerializerDefaults.Web));
-                if (dados is null || dados.Ano != ano || dados.Feriados is null)
-                    return Results.Json(new { error = "O servidor MCP devolveu uma resposta inválida." }, statusCode: 502);
-
-                return Results.Ok(new ChatReply(MontarRespostaFeriados(dados, recentMessages[^1].Content), true));
             }
 
             if (string.IsNullOrWhiteSpace(response.Text))
@@ -130,14 +149,6 @@ app.MapPost("/api/chat", async (ChatRequest request, IChatClient chatClient,
 });
 
 app.Run();
-
-static int? AnoDeConsultaDeFeriados(List<ChatInput> messages)
-{
-    var ano = Regex.Match(messages[^1].Content, @"\b\d{4}\b");
-    var assuntoEhFeriados = messages.TakeLast(3).Any(message =>
-        message.Role == "user" && message.Content.Contains("feriad", StringComparison.OrdinalIgnoreCase));
-    return ano.Success && assuntoEhFeriados ? int.Parse(ano.Value, CultureInfo.InvariantCulture) : null;
-}
 
 static string MontarRespostaFeriados(ResultadoFeriados dados, string pergunta)
 {

@@ -61,14 +61,16 @@ Caso o Ollama não esteja atendendo na porta 11434, abra o aplicativo ou execute
 1. Envie “Olá”. A resposta não deve mostrar o indicador “Consultado via MCP”.
 2. Envie “Quais são os feriados nacionais de 2026?”. O chat deve mostrar o indicador e listar dados que podem ser conferidos em `https://brasilapi.com.br/api/feriados/v1/2026`.
 3. Envie “E em 2027?”. O sistema deve consultar o novo ano e mostrar o indicador novamente.
+4. Envie “Me fala os feriados desse ano”. O chat usa o ano atual no horário de Brasília e consulta o MCP.
+5. Envie “Quais são os feriados dessa semana?”. O chat considera a semana de segunda a domingo e informa os feriados nacionais do intervalo, ou que não há nenhum.
 
-Os testes automatizados cobrem a validação do ano, a leitura dos dados da BrasilAPI e as falhas da consulta externa. Para executá-los novamente, use `dotnet test Feriados.sln`.
+Os testes automatizados cobrem a validação do ano, a leitura dos dados da BrasilAPI, as falhas da consulta externa e a interpretação de “desse ano” e “dessa semana”. Para executá-los novamente, use `dotnet test Feriados.sln`.
 
 ## Como funciona
 
 O navegador guarda o histórico somente enquanto a página está aberta e envia as últimas 12 mensagens a `POST /api/chat`. O projeto `Feriados.Web` envia a conversa ao modelo local e lhe apresenta a ferramenta descoberta no servidor MCP. Quando a ferramenta `consultar_feriados_nacionais(ano)` é chamada, `Feriados.Mcp` valida o ano, consulta a BrasilAPI e devolve data, nome e tipo dos feriados.
 
-O servidor Web também verifica se uma pergunta sobre feriados com ano explícito ficou sem consulta por decisão do modelo. Nesse caso, chama a ferramenta MCP e monta a resposta a partir dos dados recebidos. Se a consulta falhar, mostra um erro em vez de apresentar datas não confirmadas.
+O servidor Web resolve “desse ano” pela data atual de Brasília e “dessa semana” pelo intervalo de segunda a domingo. Para essas expressões, monta a resposta com os dados confirmados pelo MCP; se a semana atravessar a virada do ano, consulta os dois anos. Também verifica se uma pergunta com ano explícito ficou sem consulta por decisão do modelo e, nesse caso, chama a ferramenta MCP. Se a consulta falhar, mostra um erro em vez de apresentar datas não confirmadas.
 
 `POST /api/chat` recebe `{ "messages": [{ "role": "user", "content": "Quais são os feriados de 2026?" }] }` e devolve `{ "answer": "...", "usedMcp": true }`. A interface usa HTML, CSS e JavaScript em arquivos separados. Os dois projetos .NET separam a conversa da ferramenta MCP; não há banco de dados, login ou framework de frontend.
 

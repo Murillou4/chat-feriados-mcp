@@ -9,4 +9,7 @@
     <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <PackageReference Include="OllamaSharp" Version="5.4.30" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Feriados.Web.Tests" />
+  </ItemGroup>
 </Project>
